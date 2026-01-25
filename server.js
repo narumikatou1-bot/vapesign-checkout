@@ -1,4 +1,4 @@
-// server.js  — Node 20/22 OK（ESM）
+// server.js — Node 20/22 OK (ESM)
 // ① .env を最初に読む
 import 'dotenv/config';
 
@@ -27,7 +27,7 @@ async function wcFetch(path, init = {}) {
   const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    // Basic 認証（クエリ渡しより WAF に弾かれにくい）
+    // Xserver の WAF でも通りやすい Basic 認証方式に統一
     'Authorization': 'Basic ' + Buffer.from(`${WC_CK}:${WC_CS}`).toString('base64'),
     'User-Agent': 'showermegifts-checkout/1.0 (+https://showermegifts.com)',
     ...(init.headers || {}),
@@ -49,14 +49,14 @@ async function wcUpdateOrderStatus(orderId, status) {
   return r.json();
 }
 
-// ④ Webhook（**raw** で最初に置く）
+// ④ Webhook（**raw** を最初に置くこと）
 app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const sig = req.headers['stripe-signature'];
     const event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET
+      mustEnv('STRIPE_WEBHOOK_SECRET')
     );
 
     switch (event.type) {
@@ -64,8 +64,10 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
         const s = event.data.object; // Stripe Checkout Session
         const orderId = parseInt(s.client_reference_id, 10);
 
+        // ガード
         if (!orderId || s.mode !== 'payment' || s.payment_status !== 'paid') break;
 
+        // すでに処理中/完了なら何もしない（冪等）
         try {
           const current = await wcGetOrder(orderId);
           const cur = String(current.status || '');
@@ -95,16 +97,17 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
   }
 });
 
-// ⑤ それ以外は JSON でOK（Webhook より下）
+// ⑤ それ以外は JSON（Webhook より下）
 app.use(cors({ origin: ['https://showermegifts.com'] }));
 app.use(express.json());
 
+// 動作確認用
 app.get('/health', (_req, res) => res.send('ok'));
 
-// チェックアウト URL を作る（WP から叩く想定）
+// Checkout URL を作る（WP の mu‑plugin から叩く想定）
 app.post('/api/create-checkout', async (req, res) => {
   try {
-    if (req.headers['x-api-key'] !== process.env.INTERNAL_API_KEY) {
+    if (req.headers['x-api-key'] !== mustEnv('INTERNAL_API_KEY')) {
       return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
     }
     const { orderId, amountJpy } = req.body || {};
@@ -128,7 +131,7 @@ app.post('/api/create-checkout', async (req, res) => {
       success_url: `${appBase}/payment/success?order=${encodeURIComponent(oid)}&cs={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${appBase}/payment/cancel?order=${encodeURIComponent(oid)}`,
       client_reference_id: String(oid),
-      expires_at: Math.floor(Date.now()/1000) + 60*60*24, // 24h
+      expires_at: Math.floor(Date.now()/1000) + 60*60*24, // 任意: 24h
     };
 
     const session = await stripe.checkout.sessions.create(params, {
@@ -142,7 +145,7 @@ app.post('/api/create-checkout', async (req, res) => {
   }
 });
 
-// 任意：成功ページから照会
+// 成功ページからの照会（任意）
 app.get('/api/checkout-status', async (req, res) => {
   try {
     const { cs } = req.query;
