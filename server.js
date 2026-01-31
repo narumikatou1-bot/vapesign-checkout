@@ -29,7 +29,7 @@ async function wcFetch(path, init = {}) {
     'Accept': 'application/json',
     // Xserver の WAF でも通りやすい Basic 認証方式に統一
     'Authorization': 'Basic ' + Buffer.from(`${WC_CK}:${WC_CS}`).toString('base64'),
-    'User-Agent': 'showermegifts-checkout/1.0 (+https://showermegifts.com)',
+    'User-Agent': 'vapesign-checkout/1.0 (+https://vapesign.jp)',
     ...(init.headers || {}),
   };
   const res = await fetch(url, { ...init, headers });
@@ -98,7 +98,7 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
 });
 
 // ⑤ それ以外は JSON（Webhook より下）
-app.use(cors({ origin: ['https://showermegifts.com'] }));
+app.use(cors({ origin: ['https://vapesign.jp', 'https://www.vapesign.jp'] }));
 app.use(express.json());
 
 // 動作確認用
